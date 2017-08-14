@@ -11,6 +11,9 @@ extern crate serde;
 #[macro_use]
 extern crate serde_derive;
 extern crate serde_json;
+#[macro_use]
+extern crate log;
+extern crate env_logger;
 
 mod errors {
     #![allow(unused_doc_comment)]
@@ -23,9 +26,12 @@ mod errors {
             Tls(native_tls::Error);
             Hyper(hyper::Error);
             Serde(serde_json::Error);
+            Imgur(super::ImgurError);
         }
     }
 }
+
+use std::{error, fmt};
 
 use hyper::{Client, Method, Request, Uri};
 use hyper::client::HttpConnector;
@@ -58,7 +64,7 @@ impl ImgurClient {
         ImgurClient { client, client_id }
     }
 
-    pub fn make_request<T>(&self, url: Uri) -> impl Future<Item = T, Error = Error>
+    fn get_with_auth<T>(&self, url: Uri) -> impl Future<Item = T, Error = Error>
     where
         T: DeserializeOwned,
     {
@@ -77,12 +83,17 @@ impl ImgurClient {
 
     pub fn image(&self, id: &str) -> impl Future<Item = ImgurResponse<Image>, Error = Error> {
         let url = format!("{}/image/{}", API, id).parse().unwrap();
-        self.make_request(url)
+        self.get_with_auth(url)
     }
 
-    pub fn album_images(&self, album_id: &str) -> impl Future<Item = ImgurResponse<Vec<Image>>, Error = Error> {
-        let url = format!("{}/album/{}/images", API, album_id).parse().unwrap();
-        self.make_request(url)
+    pub fn album_images(
+        &self,
+        album_id: &str,
+    ) -> impl Future<Item = ImgurResponse<Vec<Image>>, Error = Error> {
+        let url = format!("{}/album/{}/images", API, album_id)
+            .parse()
+            .unwrap();
+        self.get_with_auth(url)
     }
 }
 
@@ -90,7 +101,42 @@ impl ImgurClient {
 pub struct ImgurResponse<T> {
     pub status: usize,
     pub success: bool,
-    pub data: T,
+    pub data: ImgurData<T>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum ImgurData<T> {
+    Success(T),
+    Error(ImgurError),
+}
+
+impl<T> ImgurData<T> {
+    pub fn into_result(self) -> Result<T> {
+        match self {
+            ImgurData::Success(v) => Ok(v),
+            ImgurData::Error(e) => Err(e.into()),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ImgurError {
+    pub error: String,
+    pub request: String,
+    pub method: String,
+}
+
+impl fmt::Display for ImgurError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "Request {} {} failed: {}", self.method, self.request, self.error)
+    }
+}
+
+impl error::Error for ImgurError {
+    fn description(&self) -> &str {
+        &self.error
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -122,6 +168,8 @@ pub struct Image {
 
 #[cfg(test)]
 mod tests {
+    use std::env;
+
     use tokio_core::reactor::Core;
 
     use super::*;
@@ -135,7 +183,7 @@ mod tests {
         let id = "PE2NI";
         let work = api.image(id);
         let resp = core.run(work).unwrap();
-        assert_eq!(resp.data.id, id);
+        assert_eq!(resp.data.into_result().unwrap().id, id);
     }
 
     #[test]
@@ -145,5 +193,18 @@ mod tests {
         let id = "cXz3n";
         let work = api.album_images(id);
         let resp = core.run(work).unwrap();
+    }
+
+    #[test]
+    fn get_error() {
+        env::set_var("RUST_LOG", "imgur_api=debug");
+        ::env_logger::init();
+
+        let mut core = Core::new().unwrap();
+        let api = ImgurClient::new(&core.handle(), CLIENT_ID.into()).unwrap();
+        let id = "cXz";
+        let work = api.album_images(id);
+        let resp = core.run(work).unwrap();
+        assert!(resp.data.into_result().is_err());
     }
 }
