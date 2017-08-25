@@ -7,20 +7,21 @@
 #![cfg_attr(feature = "clippy", plugin(clippy))]
 #![recursion_limit = "128"]
 
-extern crate hyper;
-extern crate futures;
-extern crate tokio_core;
+extern crate env_logger;
 #[macro_use]
 extern crate error_chain;
+extern crate futures;
+extern crate hyper;
 extern crate hyper_tls;
+#[allow(unused)]
+#[macro_use]
+extern crate log;
 extern crate native_tls;
 extern crate serde;
 #[macro_use]
 extern crate serde_derive;
 extern crate serde_json;
-// #[macro_use]
-extern crate log;
-extern crate env_logger;
+extern crate tokio_core;
 
 mod errors {
     #![allow(unused_doc_comment)]
@@ -83,13 +84,15 @@ impl ImgurClient {
         request
             .headers_mut()
             .set(Authorization(format!("Client-ID {}", self.client_id)));
-        self.client.request(request).map_err(Error::from).and_then(
-            |resp| {
+
+        self.client
+            .request(request)
+            .map_err(Error::from)
+            .and_then(|resp| {
                 resp.body().map_err(Error::from).concat2().and_then(|body| {
                     future::result(serde_json::from_slice(&body).map_err(Error::from))
                 })
-            },
-        )
+            })
     }
 
     /// Gets data for an image (`GET /image/<id>`)
