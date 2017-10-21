@@ -1,5 +1,4 @@
 /target/
 **/*.rs.bk
-Cargo.lock
 src/client_id.txt
 .vscode
