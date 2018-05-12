@@ -1,7 +1,6 @@
 //! An asynchronous imgur API wrapper using `hyper` 0.11 and `serde`.
-#![feature(conservative_impl_trait)]
 #![deny(missing_debug_implementations, missing_copy_implementations, trivial_casts,
-       trivial_numeric_casts, unsafe_code, unused_import_braces, unused_qualifications)]
+        trivial_numeric_casts, unsafe_code, unused_import_braces, unused_qualifications)]
 #![warn(missing_docs)]
 #![cfg_attr(feature = "clippy", feature(plugin))]
 #![cfg_attr(feature = "clippy", plugin(clippy))]
@@ -13,7 +12,6 @@ extern crate error_chain;
 extern crate futures;
 extern crate hyper;
 extern crate hyper_tls;
-#[allow(unused)]
 #[macro_use]
 extern crate log;
 extern crate native_tls;
@@ -101,6 +99,12 @@ impl ImgurClient {
         self.get_with_header(url)
     }
 
+    /// Get data for an album (`GET /albuim/<id>`)
+    pub fn album(&self, album_id: &str) -> impl Future<Item = Response<Album>, Error = Error> {
+        let url = format!("{}/album/{}", API, album_id).parse().unwrap();
+        self.get_with_header(url)
+    }
+
     /// Gets data for all the images in an album. (`GET /album/<album_id>/images`).
     pub fn album_images(
         &self,
@@ -161,9 +165,7 @@ impl fmt::Display for ApiError {
         write!(
             f,
             "Request {} {} failed: {}",
-            self.method,
-            self.request,
-            self.error
+            self.method, self.request, self.error
         )
     }
 }
@@ -180,14 +182,14 @@ impl error::Error for ApiError {
 pub struct Image {
     pub account_id: Option<String>,
     pub account_url: Option<String>,
-    pub ad_type: usize,
+    pub ad_type: u32,
     pub ad_url: String,
     pub animated: bool,
-    pub bandwidth: usize,
-    pub datetime: usize,
+    pub bandwidth: u32,
+    pub datetime: u32,
     pub description: Option<String>,
     pub favorite: bool,
-    pub height: usize,
+    pub height: u32,
     pub id: String,
     pub in_gallery: bool,
     pub in_most_viral: bool,
@@ -195,18 +197,41 @@ pub struct Image {
     pub link: String,
     pub nsfw: Option<bool>,
     pub section: Option<String>,
-    pub size: usize,
+    pub size: u32,
     pub tags: Vec<String>,
     pub title: Option<String>,
-    pub views: usize,
+    pub views: u32,
     pub vote: Option<String>,
-    pub width: usize,
+    pub width: u32,
+}
+
+#[allow(missing_docs)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Album {
+    pub id: String,
+    pub title: String,
+    pub description: String,
+    pub datetime: u32,
+    pub cover: String,
+    pub cover_width: u32,
+    pub cover_height: u32,
+    pub account_url: Option<String>,
+    pub privacy: String,
+    pub layout: String,
+    pub views: u32,
+    pub link: String,
+    pub favorite: bool,
+    pub nsfw: Option<bool>,
+    pub section: Option<String>,
+    pub order: u32,
+    pub deletehash: Option<String>,
+    pub images_count: u32,
+    pub images: Option<Vec<Image>>,
+    pub in_gallery: bool,
 }
 
 #[cfg(test)]
 mod tests {
-    use std::env;
-
     use tokio_core::reactor::Core;
 
     use super::*;
@@ -230,18 +255,27 @@ mod tests {
         let id = "cXz3n";
         let work = api.album_images(id);
         let resp = core.run(work).unwrap();
+        let images: Vec<Image> = resp.data.into_result().unwrap();
+        assert!(images.len() > 5);
     }
 
     #[test]
     fn get_error() {
-        env::set_var("RUST_LOG", "imgur_api=debug");
-        ::env_logger::init();
-
         let mut core = Core::new().unwrap();
         let api = ImgurClient::new(&core.handle(), CLIENT_ID.into()).unwrap();
         let id = "cXz";
         let work = api.album_images(id);
         let resp = core.run(work).unwrap();
         assert!(resp.data.into_result().is_err());
+    }
+
+    #[test]
+    fn get_album() {
+        let mut core = Core::new().unwrap();
+        let api = ImgurClient::new(&core.handle(), CLIENT_ID.into()).unwrap();
+        let id = "cXz3n";
+        let work = api.album(id);
+        let resp = core.run(work).unwrap();
+        assert_eq!(resp.data.into_result().unwrap().id, "cXz3n");
     }
 }
